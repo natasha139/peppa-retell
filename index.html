@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Peppa Retell 🐷</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #fef9f0;
+      color: #2c2c2c;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .container {
+      text-align: center;
+      padding: 2rem;
+    }
+    .mascot { font-size: 5rem; animation: bounce 2s ease-in-out infinite; }
+    @keyframes bounce {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-12px); }
+    }
+    h1 { font-size: 2.5rem; font-weight: 800; color: #e8734a; margin: 0.5rem 0; }
+    p { color: #8a8078; margin-bottom: 2rem; }
+    .links { display: flex; gap: 1.5rem; justify-content: center; flex-wrap: wrap; }
+    a.card {
+      display: flex; flex-direction: column; align-items: center; gap: 0.5rem;
+      padding: 2rem 2.5rem;
+      background: #fff;
+      border-radius: 16px;
+      box-shadow: 0 2px 12px rgba(0,0,0,.08);
+      text-decoration: none;
+      color: #2c2c2c;
+      transition: transform 0.2s, box-shadow 0.2s;
+      min-width: 200px;
+    }
+    a.card:hover { transform: translateY(-4px); box-shadow: 0 6px 20px rgba(0,0,0,.12); }
+    .card-icon { font-size: 2.5rem; }
+    .card-title { font-size: 1.2rem; font-weight: 700; }
+    .card-desc { font-size: 0.85rem; color: #8a8078; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="mascot">🐷</div>
+    <h1>Peppa Retell</h1>
+    <p>Practice retelling Peppa Pig stories!</p>
+    <div class="links">
+      <a class="card" href="/student/">
+        <div class="card-icon">📖</div>
+        <div class="card-title">Student</div>
+        <div class="card-desc">Practice retelling</div>
+      </a>
+      <a class="card" href="/teacher/">
+        <div class="card-icon">✏️</div>
+        <div class="card-title">Teacher</div>
+        <div class="card-desc">Create course packs</div>
+      </a>
+    </div>
+  </div>
+</body>
+</html>
