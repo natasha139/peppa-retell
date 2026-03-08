@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Peppa Retell — Student Mode 🐷</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- ========== Landing: Load Course Pack ========== -->
+  <section id="screen-load" class="screen active">
+    <div class="center-box">
+      <div class="mascot">🐷</div>
+      <h1>Peppa Retell</h1>
+      <p class="tagline">Practice retelling Peppa Pig stories!</p>
+      <div class="load-area">
+        <label class="btn-primary load-btn" for="config-upload">
+          📂 Load Course Pack
+          <input type="file" id="config-upload" accept=".json,application/json" hidden>
+        </label>
+        <p class="hint">Upload the <code>config.json</code> exported by your teacher.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========== Step 1: Listen & Look ========== -->
+  <section id="screen-listen" class="screen">
+    <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
+    <div class="step-badge">Step 1 · Listen & Look</div>
+    <div class="scene-display">
+      <div class="scene-image-wrap">
+        <img id="scene-img" src="" alt="Scene illustration">
+        <div id="scene-img-placeholder" class="img-placeholder">🖼️ No image</div>
+      </div>
+      <div class="scene-content">
+        <div class="connector-bubble" id="connector-bubble"></div>
+        <div class="keywords-display" id="keywords-display"></div>
+        <div class="sentence-display" id="sentence-full"></div>
+        <button class="btn-audio" id="btn-play-audio" disabled>🔊 Play Audio</button>
+      </div>
+    </div>
+    <div class="nav-row">
+      <button class="btn-secondary" id="btn-listen-prev" disabled>← Back</button>
+      <button class="btn-primary" id="btn-listen-next">Ready to Practice →</button>
+    </div>
+  </section>
+
+  <!-- ========== Step 2: Masked Challenge ========== -->
+  <section id="screen-mask" class="screen">
+    <div class="progress-bar"><div class="progress-fill" id="progress-fill-2"></div></div>
+    <div class="step-badge">Step 2 · Say It!</div>
+    <div class="scene-display">
+      <div class="scene-image-wrap">
+        <img id="mask-img" src="" alt="Scene illustration">
+        <div id="mask-img-placeholder" class="img-placeholder">🖼️</div>
+      </div>
+      <div class="scene-content">
+        <div class="connector-bubble" id="mask-connector"></div>
+        <div class="masked-sentence" id="masked-sentence"></div>
+        <div class="record-area">
+          <button class="btn-record" id="btn-record" aria-label="Start recording">🎙️</button>
+          <div class="record-status" id="record-status">Tap to record</div>
+        </div>
+        <div class="transcript-area hidden" id="transcript-area">
+          <div class="transcript-label">You said:</div>
+          <div class="transcript-text" id="transcript-text"></div>
+          <div class="score-display" id="score-display"></div>
+          <div class="feedback" id="feedback"></div>
+        </div>
+      </div>
+    </div>
+    <div class="nav-row">
+      <button class="btn-secondary" id="btn-mask-retry">🔄 Try Again</button>
+      <button class="btn-primary" id="btn-mask-next">Next Scene →</button>
+    </div>
+  </section>
+
+  <!-- ========== Step 3: Grand Finale — Filmstrip Retell ========== -->
+  <section id="screen-finale" class="screen">
+    <div class="step-badge">🎬 Grand Finale · Full Retell</div>
+    <div class="filmstrip-wrap">
+      <div class="filmstrip" id="filmstrip"></div>
+    </div>
+    <div class="finale-controls">
+      <button class="btn-record btn-record-large" id="btn-record-finale" aria-label="Record full retell">🎙️</button>
+      <div class="record-status" id="finale-record-status">Record your full retell!</div>
+    </div>
+    <div class="finale-result hidden" id="finale-result">
+      <div class="transcript-label">Your retell:</div>
+      <div class="transcript-text" id="finale-transcript"></div>
+      <div class="score-display" id="finale-score"></div>
+      <button class="btn-primary" id="btn-make-video">🎬 Make My Movie!</button>
+    </div>
+    <div class="video-output hidden" id="video-output">
+      <p class="hint">Video generation requires local Python (MoviePy/FFmpeg). Export your recordings below:</p>
+      <button class="btn-primary" id="btn-export-recordings">📦 Export Recordings</button>
+    </div>
+  </section>
+
+  <audio id="audio-player" hidden></audio>
+  <script src="app.js"></script>
+</body>
+</html>

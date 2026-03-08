@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Peppa Retell — Teacher Dashboard</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="top-bar">
+    <div class="logo">🐷 Peppa Retell</div>
+    <nav>
+      <button class="tab active" data-tab="parser">Script Parser</button>
+      <button class="tab" data-tab="editor">Scene Editor</button>
+      <button class="tab" data-tab="export">Export</button>
+    </nav>
+  </header>
+
+  <main>
+    <!-- ========== TAB 1: Script Parser ========== -->
+    <section id="tab-parser" class="tab-panel active">
+      <div class="panel-header">
+        <h2>Smart Script Parser</h2>
+        <p class="subtitle">Paste a Peppa Pig episode script and let AI split it into teachable scenes.</p>
+      </div>
+      <div class="parser-grid">
+        <div class="input-group">
+          <label for="script-input">Episode Script</label>
+          <textarea id="script-input" rows="14" placeholder="Paste the full episode script here…"></textarea>
+        </div>
+        <div class="input-group">
+          <label for="parse-prefs">Parsing Preferences (optional)</label>
+          <textarea id="parse-prefs" rows="6" placeholder="e.g. 'Focus on outdoor scenes', 'Keep dialogue under 3 lines per scene', 'Target A1 vocabulary'…"></textarea>
+        </div>
+        <button id="btn-parse" class="btn-primary">✨ Parse into Scenes</button>
+        <div id="parse-status" class="status-msg hidden"></div>
+      </div>
+    </section>
+
+    <!-- ========== TAB 2: Scene Editor ========== -->
+    <section id="tab-editor" class="tab-panel">
+      <div class="panel-header">
+        <h2>Scene Editor</h2>
+        <p class="subtitle">Fine-tune each scene: upload resources, edit target sentences, and mark blanks.</p>
+      </div>
+      <div id="scene-list" class="scene-list">
+        <p class="empty-state">No scenes yet. Parse a script first.</p>
+      </div>
+    </section>
+
+    <!-- ========== TAB 3: Export ========== -->
+    <section id="tab-export" class="tab-panel">
+      <div class="panel-header">
+        <h2>Course Pack Export</h2>
+        <p class="subtitle">Preview the final JSON and download the complete course package.</p>
+      </div>
+      <pre id="json-preview" class="json-preview">{ "scenes": [] }</pre>
+      <button id="btn-export" class="btn-primary">📦 Export Course Pack</button>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
