@@ -11,20 +11,22 @@ const state = {
   activeTab: 'parser',
 };
 
-// Scene schema
+// Scene schema — supports multiple target sentences
 function createScene(index, data = {}) {
+  const sentences = data.targetSentences || (data.targetSentence ? [data.targetSentence] : []);
   return {
     id: `scene-${Date.now()}-${index}`,
     index,
     title: data.title || `Scene ${index + 1}`,
     screenshotDesc: data.screenshotDesc || '',
     keywords: data.keywords || [],
-    targetSentence: data.targetSentence || '',
-    words: [],          // derived from targetSentence
-    maskedIndices: [],   // indices into words[] that are blanked
+    targetSentences: sentences,
+    // Per-sentence word tokens and mask indices
+    sentenceWords: sentences.map(s => tokenize(s)),
+    sentenceMasks: sentences.map(() => []),
     connector: data.connector || '',
-    imageFile: null,     // File object
-    imagePreview: null,  // data URL
+    imageFile: null,
+    imagePreview: null,
     audioFile: null,
     audioName: null,
   };
@@ -46,7 +48,7 @@ document.querySelectorAll('.tab').forEach(btn => {
 });
 
 // ============================================================
-// Script Parser (mock / placeholder for AI call)
+// Script Parser
 // ============================================================
 document.getElementById('btn-parse').addEventListener('click', () => {
   const script = document.getElementById('script-input').value.trim();
@@ -60,65 +62,341 @@ document.getElementById('btn-parse').addEventListener('click', () => {
 
   showStatus(statusEl, '✨ Parsing script into scenes…', 'info');
 
-  // Simulate AI parsing — split by double newlines or "Scene" markers
   setTimeout(() => {
-    const parsed = mockParseScript(script, prefs);
-    state.scenes = parsed.map((s, i) => {
-      const scene = createScene(i, s);
-      scene.words = tokenize(scene.targetSentence);
-      return scene;
-    });
+    const parsed = parseScript(script, prefs);
+    state.scenes = parsed.map((s, i) => createScene(i, s));
     renderSceneCards();
-    showStatus(statusEl, `✅ Created ${state.scenes.length} scenes. Switch to Scene Editor to refine.`, 'success');
-  }, 800);
+    showStatus(statusEl, `✅ Created ${state.scenes.length} scenes (Setting → Beginning → Middle → Ending). Switch to Scene Editor to refine.`, 'success');
+  }, 600);
 });
 
-function mockParseScript(script, prefs) {
-  // Heuristic split: try to find natural breaks
-  const paragraphs = script.split(/\n\s*\n/).filter(p => p.trim());
-  const connectors = ['First', 'Then', 'Next', 'After that', 'But', 'So', 'Finally', 'Meanwhile'];
-  const numScenes = Math.min(Math.max(paragraphs.length, 3), 8);
-  const chunkSize = Math.ceil(paragraphs.length / numScenes);
+// ============================================================
+// Smart Script Parser — 4-act structure
+// ============================================================
 
-  const scenes = [];
-  for (let i = 0; i < numScenes; i++) {
-    const chunk = paragraphs.slice(i * chunkSize, (i + 1) * chunkSize).join('\n');
-    if (!chunk.trim()) continue;
+// Common A1-A2 stop words to exclude from keyword extraction
+const STOP_WORDS = new Set([
+  'the','a','an','is','are','was','were','be','been','being','have','has','had',
+  'do','does','did','will','would','shall','should','may','might','must','can','could',
+  'i','you','he','she','it','we','they','me','him','her','us','them','my','your',
+  'his','its','our','their','mine','yours','hers','ours','theirs','this','that',
+  'these','those','what','which','who','whom','whose','where','when','how','why',
+  'and','but','or','nor','not','no','so','if','then','than','too','very','just',
+  'about','after','all','also','any','back','because','before','between','both',
+  'come','comes','came','day','each','even','first','from','get','gets','got',
+  'give','go','goes','going','gone','went','good','great','here','into','know',
+  'like','likes','little','look','looks','looking','make','makes','more','much',
+  'new','now','off','old','one','only','other','out','over','own','part','people',
+  'right','same','say','says','said','see','some','still','such','take','tell',
+  'thing','think','time','two','under','upon','use','want','wants','way','well',
+  'with','work','year','yes','oh','okay','really','dear','let','lets',
+  'peppa','george','pig','daddy','mummy','narrator','miss','rabbit','suzy','sheep',
+  'danny','dog','pedro','pony','emily','elephant','rebecca','zoe','zebra','freddy','fox',
+  'grandpa','granny','mr','mrs','madame','gazelle',
+]);
 
-    // Extract a plausible target sentence (first line of dialogue or first sentence)
-    const lines = chunk.split('\n').map(l => l.trim()).filter(Boolean);
-    const dialogueLine = lines.find(l => /[:：]/.test(l));
-    let target = '';
-    if (dialogueLine) {
-      target = dialogueLine.replace(/^[^:：]+[:：]\s*/, '').replace(/["""]/g, '').trim();
-    } else {
-      target = lines[0].substring(0, 80);
+function parseScript(script, prefs) {
+  const lines = script.split('\n').map(l => l.trim()).filter(Boolean);
+
+  // Step 1: Split into 4 roughly equal acts
+  const acts = splitIntoActs(lines);
+
+  // Step 2: For each act, extract keywords and generate target sentences
+  const storyStructure = [
+    { label: 'Setting',   connector: 'First',      desc: 'Where and who' },
+    { label: 'Beginning', connector: 'Then',        desc: 'What starts happening' },
+    { label: 'Middle',    connector: 'After that',  desc: 'The main event or problem' },
+    { label: 'Ending',    connector: 'Finally',     desc: 'How it ends' },
+  ];
+
+  return acts.map((actLines, i) => {
+    const structure = storyStructure[i];
+    const actText = actLines.join('\n');
+
+    // Extract dialogue and narration
+    const { dialogues, narration } = extractDialogueAndNarration(actLines);
+
+    // Extract 2-3 keywords
+    const keywords = extractKeywords(actLines, 3);
+
+    // Generate 1-2 A1-A2 target sentences
+    const targetSentences = generateTargetSentences(actLines, dialogues, narration, structure, keywords);
+
+    // Generate screenshot description
+    const screenshotDesc = generateScreenshotDesc(actLines, structure);
+
+    return {
+      title: `${structure.label}`,
+      screenshotDesc,
+      keywords,
+      targetSentences,
+      connector: structure.connector,
+    };
+  });
+}
+
+/**
+ * Split lines into 4 acts using narrative cues or equal division
+ */
+function splitIntoActs(lines) {
+  // Try to detect scene/act markers
+  const breakPatterns = [
+    /^(scene|act|part)\s*\d/i,
+    /^---+$/,
+    /^\[.*\]$/,
+  ];
+
+  // Look for natural narrative breaks
+  const breakIndices = [];
+  for (let i = 1; i < lines.length - 1; i++) {
+    const line = lines[i];
+    // Explicit markers
+    if (breakPatterns.some(p => p.test(line))) {
+      breakIndices.push(i);
+      continue;
     }
-
-    // Extract keywords (simple: pick 2-3 nouns/verbs > 3 chars)
-    const allWords = target.split(/\s+/).filter(w => w.length > 3 && /^[a-zA-Z]+$/.test(w));
-    const kw = [...new Set(allWords)].slice(0, 3);
-
-    scenes.push({
-      title: `Scene ${i + 1}`,
-      screenshotDesc: `Screenshot for scene ${i + 1}`,
-      keywords: kw,
-      targetSentence: target,
-      connector: connectors[i % connectors.length],
-    });
+    // Narrator lines often signal transitions
+    if (/^narrator\s*[:：]/i.test(line) && i > 3) {
+      breakIndices.push(i);
+    }
   }
 
-  return scenes.length ? scenes : [{
-    title: 'Scene 1',
-    screenshotDesc: 'Main scene',
-    keywords: ['Peppa', 'play'],
-    targetSentence: 'Peppa loves jumping in muddy puddles.',
-    connector: 'First',
-  }];
+  // If we found enough natural breaks, use them to create 4 acts
+  if (breakIndices.length >= 3) {
+    // Pick 3 break points to create 4 segments
+    const picks = pickEvenlySpaced(breakIndices, 3);
+    return splitAtIndices(lines, picks);
+  }
+
+  // Fallback: split into 4 roughly equal parts
+  const chunkSize = Math.ceil(lines.length / 4);
+  const acts = [];
+  for (let i = 0; i < 4; i++) {
+    const start = i * chunkSize;
+    const end = Math.min(start + chunkSize, lines.length);
+    if (start < lines.length) {
+      acts.push(lines.slice(start, end));
+    }
+  }
+  // Ensure exactly 4 acts
+  while (acts.length < 4) acts.push(acts[acts.length - 1] || ['']);
+  return acts.slice(0, 4);
+}
+
+function pickEvenlySpaced(arr, count) {
+  if (arr.length <= count) return arr.slice(0, count);
+  const step = arr.length / count;
+  const result = [];
+  for (let i = 0; i < count; i++) {
+    result.push(arr[Math.round(i * step)]);
+  }
+  return result;
+}
+
+function splitAtIndices(lines, indices) {
+  const sorted = [...indices].sort((a, b) => a - b);
+  const acts = [];
+  let prev = 0;
+  for (const idx of sorted) {
+    acts.push(lines.slice(prev, idx));
+    prev = idx;
+  }
+  acts.push(lines.slice(prev));
+  return acts;
+}
+
+/**
+ * Separate dialogue lines from narration
+ */
+function extractDialogueAndNarration(lines) {
+  const dialogues = [];
+  const narration = [];
+  for (const line of lines) {
+    if (/^[A-Za-z\s]+[:：]/.test(line)) {
+      const speaker = line.match(/^([A-Za-z\s]+)[:：]/)[1].trim();
+      const text = line.replace(/^[A-Za-z\s]+[:：]\s*/, '').replace(/["""'']/g, '').trim();
+      if (text) dialogues.push({ speaker, text });
+    } else {
+      narration.push(line);
+    }
+  }
+  return { dialogues, narration };
+}
+
+/**
+ * Extract 2-3 meaningful keywords from act lines
+ * Focuses on concrete nouns, action verbs, and adjectives at A1-A2 level
+ */
+function extractKeywords(lines, maxCount) {
+  const allText = lines.join(' ');
+  // Remove speaker labels
+  const cleaned = allText.replace(/[A-Za-z\s]+[:：]/g, ' ').replace(/["""''.,!?;:()\[\]]/g, ' ');
+  const words = cleaned.split(/\s+/).filter(Boolean);
+
+  // Count word frequency, excluding stop words
+  const freq = {};
+  for (const raw of words) {
+    const w = raw.toLowerCase();
+    if (w.length < 3 || STOP_WORDS.has(w) || /^\d+$/.test(w)) continue;
+    // Normalize simple plurals/verb forms
+    const base = w.replace(/(ing|ed|s)$/, '');
+    if (base.length < 3) continue;
+    const key = w; // keep original form for display
+    freq[key] = (freq[key] || 0) + 1;
+  }
+
+  // Sort by frequency, then by length (prefer more descriptive words)
+  const sorted = Object.entries(freq)
+    .sort((a, b) => b[1] - a[1] || b[0].length - a[0].length);
+
+  // Deduplicate stems
+  const selected = [];
+  const usedStems = new Set();
+  for (const [word] of sorted) {
+    const stem = word.toLowerCase().replace(/(ing|ed|s|ly)$/, '');
+    if (usedStems.has(stem)) continue;
+    usedStems.add(stem);
+    selected.push(word);
+    if (selected.length >= maxCount) break;
+  }
+
+  return selected;
+}
+
+/**
+ * Generate 1-2 simple A1-A2 target sentences that describe what's visible in a screenshot
+ */
+function generateTargetSentences(lines, dialogues, narration, structure, keywords) {
+  const sentences = [];
+
+  // Strategy 1: Simplify narration lines into A1-A2 sentences
+  for (const line of narration) {
+    const simplified = simplifyToA1(line);
+    if (simplified && simplified.split(/\s+/).length >= 4 && simplified.split(/\s+/).length <= 15) {
+      sentences.push(capitalizeFirst(simplified));
+      if (sentences.length >= 2) break;
+    }
+  }
+
+  // Strategy 2: If not enough from narration, convert key dialogue into reported speech
+  if (sentences.length < 1 && dialogues.length > 0) {
+    for (const d of dialogues) {
+      const reported = dialogueToDescription(d);
+      if (reported) {
+        sentences.push(capitalizeFirst(reported));
+        if (sentences.length >= 2) break;
+      }
+    }
+  }
+
+  // Strategy 3: Construct from keywords if still not enough
+  if (sentences.length < 1 && keywords.length > 0) {
+    const constructed = constructFromKeywords(keywords, structure);
+    sentences.push(constructed);
+  }
+
+  // Ensure at least 1 sentence
+  if (sentences.length === 0) {
+    sentences.push(`This is the ${structure.label.toLowerCase()} of the story.`);
+  }
+
+  return sentences.slice(0, 2);
+}
+
+/**
+ * Simplify a line to A1-A2 level
+ */
+function simplifyToA1(line) {
+  let s = line.trim();
+  // Remove stage directions [...]
+  s = s.replace(/\[.*?\]/g, '').trim();
+  // Remove quotes
+  s = s.replace(/["""'']/g, '').trim();
+  // Skip very short or very long
+  if (s.length < 10 || s.length > 120) return null;
+  // Skip lines that are just speaker labels
+  if (/^[A-Za-z\s]+[:：]$/.test(s)) return null;
+  // Remove speaker label if present
+  s = s.replace(/^[A-Za-z\s]+[:：]\s*/, '');
+  // Ensure it ends with punctuation
+  if (!/[.!?]$/.test(s)) s += '.';
+  return s;
+}
+
+/**
+ * Convert dialogue to a descriptive sentence
+ * e.g. { speaker: "Peppa", text: "I love riding my bicycle!" }
+ * → "Peppa loves riding her bicycle."
+ */
+function dialogueToDescription(d) {
+  const speaker = d.speaker;
+  let text = d.text.replace(/[!?]+$/, '.').replace(/\.+$/, '.');
+
+  // Simple first-person → third-person conversion
+  text = text
+    .replace(/\bI am\b/gi, `${speaker} is`)
+    .replace(/\bI'm\b/gi, `${speaker} is`)
+    .replace(/\bI have\b/gi, `${speaker} has`)
+    .replace(/\bI've\b/gi, `${speaker} has`)
+    .replace(/\bI can\b/gi, `${speaker} can`)
+    .replace(/\bI want\b/gi, `${speaker} wants`)
+    .replace(/\bI like\b/gi, `${speaker} likes`)
+    .replace(/\bI love\b/gi, `${speaker} loves`)
+    .replace(/\bI need\b/gi, `${speaker} needs`)
+    .replace(/\bI\b/g, speaker)
+    .replace(/\bmy\b/gi, `${speaker}'s`)
+    .replace(/\bme\b/gi, speaker);
+
+  // Skip if too short
+  if (text.split(/\s+/).length < 4) return null;
+  return text;
+}
+
+/**
+ * Construct a sentence from keywords and story structure
+ */
+function constructFromKeywords(keywords, structure) {
+  const kw = keywords.slice(0, 3);
+  const templates = {
+    'Setting': [
+      `The story is about ${kw.join(' and ')}.`,
+      `Peppa and her friends are with ${kw[0]}.`,
+    ],
+    'Beginning': [
+      `They start to ${kw[0]}.`,
+      `Peppa wants to ${kw[0]}.`,
+    ],
+    'Middle': [
+      `They ${kw[0]} together.`,
+      `Something happens with the ${kw[0]}.`,
+    ],
+    'Ending': [
+      `Everyone is happy about the ${kw[0]}.`,
+      `They all ${kw[0]} in the end.`,
+    ],
+  };
+  const options = templates[structure.label] || [`They ${kw[0]}.`];
+  return options[0];
+}
+
+/**
+ * Generate a screenshot description for the scene
+ */
+function generateScreenshotDesc(lines, structure) {
+  const { narration } = extractDialogueAndNarration(lines);
+  if (narration.length > 0) {
+    const desc = narration[0].replace(/\[.*?\]/g, '').trim();
+    if (desc.length > 10) return desc.substring(0, 100);
+  }
+  return `Screenshot for the ${structure.label.toLowerCase()} scene`;
+}
+
+function capitalizeFirst(s) {
+  return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
 // ============================================================
-// Scene Card Rendering
+// Scene Card Rendering (supports multiple target sentences)
 // ============================================================
 function renderSceneCards() {
   const container = document.getElementById('scene-list');
@@ -156,7 +434,7 @@ function renderSceneCards() {
 
         <!-- Keywords -->
         <div>
-          <div style="font-size:0.75rem;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted);margin-bottom:0.4rem;">Keywords</div>
+          <div style="font-size:0.75rem;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted);margin-bottom:0.4rem;">Keywords (2-3)</div>
           <div class="keywords-row" id="kw-row-${idx}">
             ${scene.keywords.map((kw, ki) => `
               <span class="keyword-tag">
@@ -168,20 +446,25 @@ function renderSceneCards() {
           </div>
         </div>
 
-        <!-- Target Sentence -->
-        <div class="target-sentence-area">
-          <div class="area-label">Target Sentence (A1)</div>
-          <input type="text" class="target-edit-input" data-idx="${idx}" value="${escAttr(scene.targetSentence)}" aria-label="Edit target sentence for ${escHtml(scene.title)}">
-          <div class="hint">Click a word to toggle blank (masked words shown in blue).</div>
-          <div class="word-tokens" id="tokens-${idx}">
-            ${scene.words.map((w, wi) => `
-              <span class="word-token ${scene.maskedIndices.includes(wi) ? 'masked' : ''}"
-                    data-scene="${idx}" data-word="${wi}"
-                    role="button" tabindex="0"
-                    aria-pressed="${scene.maskedIndices.includes(wi)}"
-                    aria-label="Toggle blank for word ${escHtml(w)}">${escHtml(w)}</span>
-            `).join('')}
-          </div>
+        <!-- Target Sentences (1-2) -->
+        <div class="target-sentences-area">
+          ${scene.targetSentences.map((sent, si) => `
+            <div class="target-sentence-area" style="margin-bottom:0.75rem;">
+              <div class="area-label">Target Sentence ${si + 1} (A1-A2)</div>
+              <input type="text" class="target-edit-input" data-idx="${idx}" data-sent="${si}" value="${escAttr(sent)}" aria-label="Edit target sentence ${si + 1} for ${escHtml(scene.title)}">
+              <div class="hint">Click a word to toggle blank (masked words shown in blue).${scene.targetSentences.length > 1 ? ` <span class="remove-sent-btn" data-idx="${idx}" data-sent="${si}" style="color:var(--danger);cursor:pointer;font-style:normal;">✕ Remove</span>` : ''}</div>
+              <div class="word-tokens" id="tokens-${idx}-${si}">
+                ${(scene.sentenceWords[si] || []).map((w, wi) => `
+                  <span class="word-token ${(scene.sentenceMasks[si] || []).includes(wi) ? 'masked' : ''}"
+                        data-scene="${idx}" data-sent="${si}" data-word="${wi}"
+                        role="button" tabindex="0"
+                        aria-pressed="${(scene.sentenceMasks[si] || []).includes(wi)}"
+                        aria-label="Toggle blank for word ${escHtml(w)}">${escHtml(w)}</span>
+                `).join('')}
+              </div>
+            </div>
+          `).join('')}
+          ${scene.targetSentences.length < 2 ? `<button class="btn-secondary btn-add-sentence" data-idx="${idx}">+ Add Target Sentence</button>` : ''}
         </div>
 
         <!-- Connector -->
@@ -231,19 +514,21 @@ function bindSceneEvents() {
     });
   });
 
-  // Word token click (toggle mask)
+  // Word token click (toggle mask) — now with sentence index
   document.querySelectorAll('.word-token').forEach(token => {
     const handler = () => {
-      const si = +token.dataset.scene;
-      const wi = +token.dataset.word;
-      const scene = state.scenes[si];
-      const pos = scene.maskedIndices.indexOf(wi);
+      const sceneIdx = +token.dataset.scene;
+      const sentIdx = +token.dataset.sent;
+      const wordIdx = +token.dataset.word;
+      const scene = state.scenes[sceneIdx];
+      const masks = scene.sentenceMasks[sentIdx];
+      const pos = masks.indexOf(wordIdx);
       if (pos === -1) {
-        scene.maskedIndices.push(wi);
+        masks.push(wordIdx);
         token.classList.add('masked');
         token.setAttribute('aria-pressed', 'true');
       } else {
-        scene.maskedIndices.splice(pos, 1);
+        masks.splice(pos, 1);
         token.classList.remove('masked');
         token.setAttribute('aria-pressed', 'false');
       }
@@ -256,9 +541,35 @@ function bindSceneEvents() {
   document.querySelectorAll('.target-edit-input').forEach(input => {
     input.addEventListener('change', e => {
       const idx = +e.target.dataset.idx;
-      state.scenes[idx].targetSentence = e.target.value;
-      state.scenes[idx].words = tokenize(e.target.value);
-      state.scenes[idx].maskedIndices = [];
+      const si = +e.target.dataset.sent;
+      state.scenes[idx].targetSentences[si] = e.target.value;
+      state.scenes[idx].sentenceWords[si] = tokenize(e.target.value);
+      state.scenes[idx].sentenceMasks[si] = [];
+      renderSceneCards();
+    });
+  });
+
+  // Add target sentence
+  document.querySelectorAll('.btn-add-sentence').forEach(btn => {
+    btn.addEventListener('click', e => {
+      const idx = +e.target.dataset.idx;
+      const scene = state.scenes[idx];
+      scene.targetSentences.push('New target sentence.');
+      scene.sentenceWords.push(tokenize('New target sentence.'));
+      scene.sentenceMasks.push([]);
+      renderSceneCards();
+    });
+  });
+
+  // Remove target sentence
+  document.querySelectorAll('.remove-sent-btn').forEach(btn => {
+    btn.addEventListener('click', e => {
+      const idx = +e.target.dataset.idx;
+      const si = +e.target.dataset.sent;
+      const scene = state.scenes[idx];
+      scene.targetSentences.splice(si, 1);
+      scene.sentenceWords.splice(si, 1);
+      scene.sentenceMasks.splice(si, 1);
       renderSceneCards();
     });
   });
@@ -276,7 +587,7 @@ function bindSceneEvents() {
     btn.addEventListener('click', e => {
       const idx = +e.target.dataset.idx;
       state.scenes.splice(idx, 1);
-      state.scenes.forEach((s, i) => { s.index = i; s.title = `Scene ${i + 1}`; });
+      state.scenes.forEach((s, i) => { s.index = i; });
       renderSceneCards();
     });
   });
@@ -309,7 +620,7 @@ function handleFileUpload(e) {
 }
 
 // ============================================================
-// Export
+// Export — updated for multiple sentences
 // ============================================================
 document.getElementById('btn-export').addEventListener('click', () => {
   const config = buildExportConfig();
@@ -324,20 +635,30 @@ document.getElementById('btn-export').addEventListener('click', () => {
 
 function buildExportConfig() {
   return {
-    version: '1.0',
+    version: '2.0',
     exportedAt: new Date().toISOString(),
     scenes: state.scenes.map(s => ({
       title: s.title,
       screenshotDesc: s.screenshotDesc,
       keywords: s.keywords,
-      targetSentence: s.targetSentence,
-      words: s.words,
-      maskedWords: s.maskedIndices.map(i => ({
+      connector: s.connector,
+      targetSentences: s.targetSentences.map((sent, si) => ({
+        text: sent,
+        words: s.sentenceWords[si],
+        maskedWords: (s.sentenceMasks[si] || []).map(i => ({
+          index: i,
+          word: (s.sentenceWords[si] || [])[i],
+          is_masked: true,
+        })),
+      })),
+      // Legacy compat: first sentence as targetSentence
+      targetSentence: s.targetSentences[0] || '',
+      words: s.sentenceWords[0] || [],
+      maskedWords: (s.sentenceMasks[0] || []).map(i => ({
         index: i,
-        word: s.words[i],
+        word: (s.sentenceWords[0] || [])[i],
         is_masked: true,
       })),
-      connector: s.connector,
       image: s.imageFile ? s.imageFile.name : null,
       audio: s.audioFile ? s.audioFile.name : null,
     })),
