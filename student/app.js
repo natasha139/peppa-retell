@@ -16,7 +16,7 @@ const state = {
   mediaRecorder: null,
   audioChunks: [],
   isRecording: false,
-  basePath: '',          // folder path for resolving images/audio
+  audioData: null,       // base64 data URI of full story audio
 };
 
 // ============================================================
@@ -41,6 +41,7 @@ document.getElementById('config-upload').addEventListener('change', async (e) =>
     state.scenes = state.config.scenes || [];
     state.currentScene = 0;
     state.recordings = new Array(state.scenes.length).fill(null);
+    state.audioData = state.config.audioData || null;
 
     if (!state.scenes.length) {
       alert('This course pack has no scenes.');
@@ -64,11 +65,12 @@ function renderListenScene() {
 
   document.getElementById('progress-fill').style.width = pct + '%';
 
-  // Image
+  // Image — use embedded base64 data
   const img = document.getElementById('scene-img');
   const placeholder = document.getElementById('scene-img-placeholder');
-  if (scene.image) {
-    img.src = scene.image;
+  const imgSrc = (scene.imageData && scene.imageData[0]) || null;
+  if (imgSrc) {
+    img.src = imgSrc;
     img.classList.add('visible');
     placeholder.style.display = 'none';
   } else {
@@ -95,14 +97,12 @@ function renderListenScene() {
       : esc(w);
   }).join(' ');
 
-  // Audio
+  // Audio — use global audio with time range
   const btnAudio = document.getElementById('btn-play-audio');
-  if (scene.audio) {
+  if (state.audioData && (scene.audioStartSec != null || scene.audioEndSec != null)) {
     btnAudio.disabled = false;
     btnAudio.onclick = () => {
-      const player = document.getElementById('audio-player');
-      player.src = scene.audio;
-      player.play();
+      playAudioClip(scene.audioStartSec || 0, scene.audioEndSec || undefined);
     };
   } else {
     btnAudio.disabled = true;
@@ -135,11 +135,12 @@ function renderMaskScene() {
 
   document.getElementById('progress-fill-2').style.width = pct + '%';
 
-  // Image
+  // Image — use embedded base64 data
   const img = document.getElementById('mask-img');
   const placeholder = document.getElementById('mask-img-placeholder');
-  if (scene.image) {
-    img.src = scene.image;
+  const imgSrc = (scene.imageData && scene.imageData[0]) || null;
+  if (imgSrc) {
+    img.src = imgSrc;
     img.classList.add('visible');
     placeholder.style.display = 'none';
   } else {
@@ -201,11 +202,11 @@ document.getElementById('btn-mask-next').addEventListener('click', () => {
 function renderFinale() {
   const filmstrip = document.getElementById('filmstrip');
   filmstrip.innerHTML = state.scenes.map((scene, i) => {
-    const hasImg = !!scene.image;
+    const imgSrc = (scene.imageData && scene.imageData[0]) || null;
     return `
       <div class="film-frame" data-idx="${i}">
-        ${hasImg
-          ? `<img src="${esc(scene.image)}" alt="Scene ${i + 1}">`
+        ${imgSrc
+          ? `<img src="${esc(imgSrc)}" alt="Scene ${i + 1}">`
           : `<div class="frame-placeholder">🖼️</div>`
         }
         <div class="frame-connector">${esc(scene.connector || '')}</div>
@@ -243,6 +244,38 @@ document.getElementById('btn-export-recordings').addEventListener('click', () =>
     downloadBlob(state.finaleRecording, 'full-retell.webm');
   }
 });
+
+// ============================================================
+// Audio Clip Playback (global audio + time range)
+// ============================================================
+let clipTimer = null;
+
+function playAudioClip(startSec, endSec) {
+  const player = document.getElementById('audio-player');
+  if (!state.audioData) return;
+
+  // Set src if not already set
+  if (player.src !== state.audioData) {
+    player.src = state.audioData;
+  }
+
+  // Stop any previous clip timer
+  if (clipTimer) { clearInterval(clipTimer); clipTimer = null; }
+  player.pause();
+
+  player.currentTime = startSec || 0;
+  player.play();
+
+  if (endSec != null && endSec > startSec) {
+    clipTimer = setInterval(() => {
+      if (player.currentTime >= endSec) {
+        player.pause();
+        clearInterval(clipTimer);
+        clipTimer = null;
+      }
+    }, 100);
+  }
+}
 
 // ============================================================
 // Recording (Web Audio / MediaRecorder)

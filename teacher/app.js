@@ -400,10 +400,10 @@ function addImagesToScene(idx, files) {
 }
 
 // ============================================================
-// Export — includes audio time ranges
+// Export — embeds base64 images & audio into JSON
 // ============================================================
-document.getElementById('btn-export').addEventListener('click', () => {
-  const config = buildExportConfig();
+document.getElementById('btn-export').addEventListener('click', async () => {
+  const config = await buildExportConfig();
   const blob = new Blob([JSON.stringify(config, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -565,12 +565,20 @@ function downloadMindMapPNG(masked) {
 document.getElementById('btn-dl-mindmap-complete').addEventListener('click', () => downloadMindMapPNG(false));
 document.getElementById('btn-dl-mindmap-masked').addEventListener('click', () => downloadMindMapPNG(true));
 
-function buildExportConfig() {
-  return {
-    version: '2.1',
-    exportedAt: new Date().toISOString(),
-    audio: state.audioFile ? state.audioName : null,
-    scenes: state.scenes.map(s => ({
+async function buildExportConfig() {
+  // Read global audio as base64 if present
+  let audioData = null;
+  if (state.audioFile) {
+    audioData = await fileToBase64(state.audioFile);
+  }
+
+  const scenes = await Promise.all(state.scenes.map(async s => {
+    // Read all images as base64
+    const imageDataArr = await Promise.all(
+      s.imageFiles.map(img => fileToBase64(img.file))
+    );
+
+    return {
       title: s.title,
       keywords: s.keywords,
       connector: s.connector,
@@ -596,13 +604,38 @@ function buildExportConfig() {
       })),
       image: s.imageFiles.length ? s.imageFiles[0].file.name : null,
       images: s.imageFiles.map(img => img.file.name),
-    })),
+      imageData: imageDataArr,  // base64 data URIs
+    };
+  }));
+
+  return {
+    version: '2.2',
+    exportedAt: new Date().toISOString(),
+    audio: state.audioFile ? state.audioName : null,
+    audioData,  // base64 data URI of full audio
+    scenes,
   };
 }
 
-function refreshJsonPreview() {
+/** Convert a File to a base64 data URI */
+function fileToBase64(file) {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.readAsDataURL(file);
+  });
+}
+
+async function refreshJsonPreview() {
   const el = document.getElementById('json-preview');
-  el.textContent = JSON.stringify(buildExportConfig(), null, 2);
+  const config = await buildExportConfig();
+  // Show preview without bulky base64 data
+  const preview = JSON.parse(JSON.stringify(config));
+  if (preview.audioData) preview.audioData = '(base64 audio data…)';
+  preview.scenes.forEach(s => {
+    if (s.imageData) s.imageData = s.imageData.map(() => '(base64 image data…)');
+  });
+  el.textContent = JSON.stringify(preview, null, 2);
 }
 
 // ============================================================
