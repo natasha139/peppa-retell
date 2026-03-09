@@ -33,8 +33,7 @@ function createScene(index, structure) {
     targetSentences: [''],
     sentenceWords: [[]],
     sentenceMasks: [[]],
-    imageFile: null,
-    imagePreview: null,
+    imageFiles: [],      // array of { file, preview }
     audioStart: '',  // mm:ss
     audioEnd: '',    // mm:ss
   };
@@ -107,15 +106,21 @@ function renderSceneCards() {
       </div>
       <div class="scene-card-body">
 
-        <!-- Upload Row: image only now -->
-        <div class="upload-row upload-row-single">
-          <div class="upload-slot ${scene.imageFile ? 'has-file' : ''}" id="img-slot-${idx}">
-            <div class="slot-icon">🖼️</div>
-            <div class="slot-label">Screenshot</div>
-            ${scene.imagePreview
-              ? `<img src="${scene.imagePreview}" style="max-width:100%;max-height:120px;border-radius:4px;margin-top:0.5rem;" alt="Scene screenshot">`
-              : '<div class="file-name">Click or drag to upload</div>'}
-            <input type="file" accept="image/*" data-idx="${idx}" data-type="image" aria-label="Upload screenshot for ${escHtml(scene.title)}">
+        <!-- Screenshots -->
+        <div class="screenshots-section">
+          <div style="font-size:0.75rem;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted);margin-bottom:0.5rem;">🖼️ Screenshots</div>
+          <div class="screenshots-grid" id="screenshots-${idx}">
+            ${scene.imageFiles.map((img, ii) => `
+              <div class="screenshot-thumb">
+                <img src="${img.preview}" alt="Screenshot ${ii + 1}">
+                <button class="screenshot-remove" data-idx="${idx}" data-img="${ii}" aria-label="Remove screenshot ${ii + 1}">✕</button>
+              </div>
+            `).join('')}
+            <label class="screenshot-add" for="img-input-${idx}">
+              <span class="screenshot-add-icon">+</span>
+              <span class="screenshot-add-label">Add</span>
+              <input type="file" id="img-input-${idx}" accept="image/*" multiple data-idx="${idx}" hidden>
+            </label>
           </div>
         </div>
 
@@ -195,9 +200,19 @@ function renderSceneCards() {
 // Event Binding
 // ============================================================
 function bindSceneEvents() {
-  // Image uploads
-  document.querySelectorAll('.upload-slot input[type="file"]').forEach(input => {
-    input.addEventListener('change', handleFileUpload);
+  // Screenshot uploads (multiple)
+  document.querySelectorAll('.screenshots-grid input[type="file"]').forEach(input => {
+    input.addEventListener('change', handleImageUpload);
+  });
+
+  // Remove screenshot
+  document.querySelectorAll('.screenshot-remove').forEach(btn => {
+    btn.addEventListener('click', e => {
+      const idx = +e.target.dataset.idx;
+      const ii = +e.target.dataset.img;
+      state.scenes[idx].imageFiles.splice(ii, 1);
+      renderSceneCards();
+    });
   });
 
   // Audio time range inputs
@@ -343,21 +358,25 @@ function previewAudioClip(sceneIdx) {
 }
 
 // ============================================================
-// File Upload Handler (images only now)
+// Image Upload Handler (multiple per scene)
 // ============================================================
-function handleFileUpload(e) {
+function handleImageUpload(e) {
   const idx = +e.target.dataset.idx;
-  const file = e.target.files[0];
-  if (!file) return;
+  const files = Array.from(e.target.files);
+  if (!files.length) return;
 
   const scene = state.scenes[idx];
-  scene.imageFile = file;
-  const reader = new FileReader();
-  reader.onload = () => {
-    scene.imagePreview = reader.result;
-    renderSceneCards();
-  };
-  reader.readAsDataURL(file);
+  let loaded = 0;
+
+  files.forEach(file => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      scene.imageFiles.push({ file, preview: reader.result });
+      loaded++;
+      if (loaded === files.length) renderSceneCards();
+    };
+    reader.readAsDataURL(file);
+  });
 }
 
 // ============================================================
@@ -555,7 +574,8 @@ function buildExportConfig() {
         word: (s.sentenceWords[0] || [])[i],
         is_masked: true,
       })),
-      image: s.imageFile ? s.imageFile.name : null,
+      image: s.imageFiles.length ? s.imageFiles[0].file.name : null,
+      images: s.imageFiles.map(img => img.file.name),
     })),
   };
 }
