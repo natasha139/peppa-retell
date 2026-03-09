@@ -1,34 +1,42 @@
 /**
  * Peppa Retell — Teacher Dashboard
- * Core application logic
+ * 4 fixed scenes, manual target sentences, global audio with time ranges
  */
 
 // ============================================================
 // State
 // ============================================================
+const SCENE_STRUCTURE = [
+  { label: 'Setting',   connector: 'First',      desc: 'Where and who' },
+  { label: 'Beginning', connector: 'Then',        desc: 'What starts happening' },
+  { label: 'Middle',    connector: 'After that',  desc: 'The main event or problem' },
+  { label: 'Ending',    connector: 'Finally',     desc: 'How it ends' },
+];
+
 const state = {
-  scenes: [],       // Array of Scene objects
-  activeTab: 'parser',
+  scenes: SCENE_STRUCTURE.map((s, i) => createScene(i, s)),
+  activeTab: 'editor',
+  audioFile: null,
+  audioName: null,
+  audioUrl: null,
+  audioDuration: 0,
 };
 
-// Scene schema — supports multiple target sentences
-function createScene(index, data = {}) {
-  const sentences = data.targetSentences || (data.targetSentence ? [data.targetSentence] : []);
+function createScene(index, structure) {
   return {
     id: `scene-${Date.now()}-${index}`,
     index,
-    title: data.title || `Scene ${index + 1}`,
-    screenshotDesc: data.screenshotDesc || '',
-    keywords: data.keywords || [],
-    targetSentences: sentences,
-    // Per-sentence word tokens and mask indices
-    sentenceWords: sentences.map(s => tokenize(s)),
-    sentenceMasks: sentences.map(() => []),
-    connector: data.connector || '',
+    title: structure.label,
+    connector: structure.connector,
+    desc: structure.desc,
+    keywords: [],
+    targetSentences: [''],
+    sentenceWords: [[]],
+    sentenceMasks: [[]],
     imageFile: null,
     imagePreview: null,
-    audioFile: null,
-    audioName: null,
+    audioStart: '',  // mm:ss
+    audioEnd: '',    // mm:ss
   };
 }
 
@@ -43,379 +51,64 @@ document.querySelectorAll('.tab').forEach(btn => {
     const id = btn.dataset.tab;
     document.getElementById(`tab-${id}`).classList.add('active');
     state.activeTab = id;
-    if (id === 'export') refreshJsonPreview();
+    if (id === 'export') {
+      refreshJsonPreview();
+      renderMindMaps();
+    }
   });
 });
 
 // ============================================================
-// Script Parser
+// Global Audio Upload
 // ============================================================
-document.getElementById('btn-parse').addEventListener('click', () => {
-  const script = document.getElementById('script-input').value.trim();
-  const prefs = document.getElementById('parse-prefs').value.trim();
-  const statusEl = document.getElementById('parse-status');
+document.getElementById('global-audio-input').addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
 
-  if (!script) {
-    showStatus(statusEl, 'Please paste an episode script first.', 'error');
-    return;
-  }
+  state.audioFile = file;
+  state.audioName = file.name;
 
-  showStatus(statusEl, '✨ Parsing script into scenes…', 'info');
+  if (state.audioUrl) URL.revokeObjectURL(state.audioUrl);
+  state.audioUrl = URL.createObjectURL(file);
 
-  setTimeout(() => {
-    const parsed = parseScript(script, prefs);
-    state.scenes = parsed.map((s, i) => createScene(i, s));
-    renderSceneCards();
-    showStatus(statusEl, `✅ Created ${state.scenes.length} scenes (Setting → Beginning → Middle → Ending). Switch to Scene Editor to refine.`, 'success');
-  }, 600);
-});
-
-// ============================================================
-// Smart Script Parser — 4-act structure
-// ============================================================
-
-// Common A1-A2 stop words to exclude from keyword extraction
-const STOP_WORDS = new Set([
-  'the','a','an','is','are','was','were','be','been','being','have','has','had',
-  'do','does','did','will','would','shall','should','may','might','must','can','could',
-  'i','you','he','she','it','we','they','me','him','her','us','them','my','your',
-  'his','its','our','their','mine','yours','hers','ours','theirs','this','that',
-  'these','those','what','which','who','whom','whose','where','when','how','why',
-  'and','but','or','nor','not','no','so','if','then','than','too','very','just',
-  'about','after','all','also','any','back','because','before','between','both',
-  'come','comes','came','day','each','even','first','from','get','gets','got',
-  'give','go','goes','going','gone','went','good','great','here','into','know',
-  'like','likes','little','look','looks','looking','make','makes','more','much',
-  'new','now','off','old','one','only','other','out','over','own','part','people',
-  'right','same','say','says','said','see','some','still','such','take','tell',
-  'thing','think','time','two','under','upon','use','want','wants','way','well',
-  'with','work','year','yes','oh','okay','really','dear','let','lets',
-  'peppa','george','pig','daddy','mummy','narrator','miss','rabbit','suzy','sheep',
-  'danny','dog','pedro','pony','emily','elephant','rebecca','zoe','zebra','freddy','fox',
-  'grandpa','granny','mr','mrs','madame','gazelle',
-]);
-
-function parseScript(script, prefs) {
-  const lines = script.split('\n').map(l => l.trim()).filter(Boolean);
-
-  // Step 1: Split into 4 roughly equal acts
-  const acts = splitIntoActs(lines);
-
-  // Step 2: For each act, extract keywords and generate target sentences
-  const storyStructure = [
-    { label: 'Setting',   connector: 'First',      desc: 'Where and who' },
-    { label: 'Beginning', connector: 'Then',        desc: 'What starts happening' },
-    { label: 'Middle',    connector: 'After that',  desc: 'The main event or problem' },
-    { label: 'Ending',    connector: 'Finally',     desc: 'How it ends' },
-  ];
-
-  return acts.map((actLines, i) => {
-    const structure = storyStructure[i];
-    const actText = actLines.join('\n');
-
-    // Extract dialogue and narration
-    const { dialogues, narration } = extractDialogueAndNarration(actLines);
-
-    // Extract 2-3 keywords
-    const keywords = extractKeywords(actLines, 3);
-
-    // Generate 1-2 A1-A2 target sentences
-    const targetSentences = generateTargetSentences(actLines, dialogues, narration, structure, keywords);
-
-    // Generate screenshot description
-    const screenshotDesc = generateScreenshotDesc(actLines, structure);
-
-    return {
-      title: `${structure.label}`,
-      screenshotDesc,
-      keywords,
-      targetSentences,
-      connector: structure.connector,
-    };
-  });
-}
-
-/**
- * Split lines into 4 acts using narrative cues or equal division
- */
-function splitIntoActs(lines) {
-  // Try to detect scene/act markers
-  const breakPatterns = [
-    /^(scene|act|part)\s*\d/i,
-    /^---+$/,
-    /^\[.*\]$/,
-  ];
-
-  // Look for natural narrative breaks
-  const breakIndices = [];
-  for (let i = 1; i < lines.length - 1; i++) {
-    const line = lines[i];
-    // Explicit markers
-    if (breakPatterns.some(p => p.test(line))) {
-      breakIndices.push(i);
-      continue;
-    }
-    // Narrator lines often signal transitions
-    if (/^narrator\s*[:：]/i.test(line) && i > 3) {
-      breakIndices.push(i);
-    }
-  }
-
-  // If we found enough natural breaks, use them to create 4 acts
-  if (breakIndices.length >= 3) {
-    // Pick 3 break points to create 4 segments
-    const picks = pickEvenlySpaced(breakIndices, 3);
-    return splitAtIndices(lines, picks);
-  }
-
-  // Fallback: split into 4 roughly equal parts
-  const chunkSize = Math.ceil(lines.length / 4);
-  const acts = [];
-  for (let i = 0; i < 4; i++) {
-    const start = i * chunkSize;
-    const end = Math.min(start + chunkSize, lines.length);
-    if (start < lines.length) {
-      acts.push(lines.slice(start, end));
-    }
-  }
-  // Ensure exactly 4 acts
-  while (acts.length < 4) acts.push(acts[acts.length - 1] || ['']);
-  return acts.slice(0, 4);
-}
-
-function pickEvenlySpaced(arr, count) {
-  if (arr.length <= count) return arr.slice(0, count);
-  const step = arr.length / count;
-  const result = [];
-  for (let i = 0; i < count; i++) {
-    result.push(arr[Math.round(i * step)]);
-  }
-  return result;
-}
-
-function splitAtIndices(lines, indices) {
-  const sorted = [...indices].sort((a, b) => a - b);
-  const acts = [];
-  let prev = 0;
-  for (const idx of sorted) {
-    acts.push(lines.slice(prev, idx));
-    prev = idx;
-  }
-  acts.push(lines.slice(prev));
-  return acts;
-}
-
-/**
- * Separate dialogue lines from narration
- */
-function extractDialogueAndNarration(lines) {
-  const dialogues = [];
-  const narration = [];
-  for (const line of lines) {
-    if (/^[A-Za-z\s]+[:：]/.test(line)) {
-      const speaker = line.match(/^([A-Za-z\s]+)[:：]/)[1].trim();
-      const text = line.replace(/^[A-Za-z\s]+[:：]\s*/, '').replace(/["""'']/g, '').trim();
-      if (text) dialogues.push({ speaker, text });
-    } else {
-      narration.push(line);
-    }
-  }
-  return { dialogues, narration };
-}
-
-/**
- * Extract 2-3 meaningful keywords from act lines
- * Focuses on concrete nouns, action verbs, and adjectives at A1-A2 level
- */
-function extractKeywords(lines, maxCount) {
-  const allText = lines.join(' ');
-  // Remove speaker labels
-  const cleaned = allText.replace(/[A-Za-z\s]+[:：]/g, ' ').replace(/["""''.,!?;:()\[\]]/g, ' ');
-  const words = cleaned.split(/\s+/).filter(Boolean);
-
-  // Count word frequency, excluding stop words
-  const freq = {};
-  for (const raw of words) {
-    const w = raw.toLowerCase();
-    if (w.length < 3 || STOP_WORDS.has(w) || /^\d+$/.test(w)) continue;
-    // Normalize simple plurals/verb forms
-    const base = w.replace(/(ing|ed|s)$/, '');
-    if (base.length < 3) continue;
-    const key = w; // keep original form for display
-    freq[key] = (freq[key] || 0) + 1;
-  }
-
-  // Sort by frequency, then by length (prefer more descriptive words)
-  const sorted = Object.entries(freq)
-    .sort((a, b) => b[1] - a[1] || b[0].length - a[0].length);
-
-  // Deduplicate stems
-  const selected = [];
-  const usedStems = new Set();
-  for (const [word] of sorted) {
-    const stem = word.toLowerCase().replace(/(ing|ed|s|ly)$/, '');
-    if (usedStems.has(stem)) continue;
-    usedStems.add(stem);
-    selected.push(word);
-    if (selected.length >= maxCount) break;
-  }
-
-  return selected;
-}
-
-/**
- * Generate 1-2 simple A1-A2 target sentences that describe what's visible in a screenshot
- */
-function generateTargetSentences(lines, dialogues, narration, structure, keywords) {
-  const sentences = [];
-
-  // Strategy 1: Simplify narration lines into A1-A2 sentences
-  for (const line of narration) {
-    const simplified = simplifyToA1(line);
-    if (simplified && simplified.split(/\s+/).length >= 4 && simplified.split(/\s+/).length <= 15) {
-      sentences.push(capitalizeFirst(simplified));
-      if (sentences.length >= 2) break;
-    }
-  }
-
-  // Strategy 2: If not enough from narration, convert key dialogue into reported speech
-  if (sentences.length < 1 && dialogues.length > 0) {
-    for (const d of dialogues) {
-      const reported = dialogueToDescription(d);
-      if (reported) {
-        sentences.push(capitalizeFirst(reported));
-        if (sentences.length >= 2) break;
-      }
-    }
-  }
-
-  // Strategy 3: Construct from keywords if still not enough
-  if (sentences.length < 1 && keywords.length > 0) {
-    const constructed = constructFromKeywords(keywords, structure);
-    sentences.push(constructed);
-  }
-
-  // Ensure at least 1 sentence
-  if (sentences.length === 0) {
-    sentences.push(`This is the ${structure.label.toLowerCase()} of the story.`);
-  }
-
-  return sentences.slice(0, 2);
-}
-
-/**
- * Simplify a line to A1-A2 level
- */
-function simplifyToA1(line) {
-  let s = line.trim();
-  // Remove stage directions [...]
-  s = s.replace(/\[.*?\]/g, '').trim();
-  // Remove quotes
-  s = s.replace(/["""'']/g, '').trim();
-  // Skip very short or very long
-  if (s.length < 10 || s.length > 120) return null;
-  // Skip lines that are just speaker labels
-  if (/^[A-Za-z\s]+[:：]$/.test(s)) return null;
-  // Remove speaker label if present
-  s = s.replace(/^[A-Za-z\s]+[:：]\s*/, '');
-  // Ensure it ends with punctuation
-  if (!/[.!?]$/.test(s)) s += '.';
-  return s;
-}
-
-/**
- * Convert dialogue to a descriptive sentence
- * e.g. { speaker: "Peppa", text: "I love riding my bicycle!" }
- * → "Peppa loves riding her bicycle."
- */
-function dialogueToDescription(d) {
-  const speaker = d.speaker;
-  let text = d.text.replace(/[!?]+$/, '.').replace(/\.+$/, '.');
-
-  // Simple first-person → third-person conversion
-  text = text
-    .replace(/\bI am\b/gi, `${speaker} is`)
-    .replace(/\bI'm\b/gi, `${speaker} is`)
-    .replace(/\bI have\b/gi, `${speaker} has`)
-    .replace(/\bI've\b/gi, `${speaker} has`)
-    .replace(/\bI can\b/gi, `${speaker} can`)
-    .replace(/\bI want\b/gi, `${speaker} wants`)
-    .replace(/\bI like\b/gi, `${speaker} likes`)
-    .replace(/\bI love\b/gi, `${speaker} loves`)
-    .replace(/\bI need\b/gi, `${speaker} needs`)
-    .replace(/\bI\b/g, speaker)
-    .replace(/\bmy\b/gi, `${speaker}'s`)
-    .replace(/\bme\b/gi, speaker);
-
-  // Skip if too short
-  if (text.split(/\s+/).length < 4) return null;
-  return text;
-}
-
-/**
- * Construct a sentence from keywords and story structure
- */
-function constructFromKeywords(keywords, structure) {
-  const kw = keywords.slice(0, 3);
-  const templates = {
-    'Setting': [
-      `The story is about ${kw.join(' and ')}.`,
-      `Peppa and her friends are with ${kw[0]}.`,
-    ],
-    'Beginning': [
-      `They start to ${kw[0]}.`,
-      `Peppa wants to ${kw[0]}.`,
-    ],
-    'Middle': [
-      `They ${kw[0]} together.`,
-      `Something happens with the ${kw[0]}.`,
-    ],
-    'Ending': [
-      `Everyone is happy about the ${kw[0]}.`,
-      `They all ${kw[0]} in the end.`,
-    ],
+  const player = document.getElementById('global-audio-player');
+  player.src = state.audioUrl;
+  player.onloadedmetadata = () => {
+    state.audioDuration = player.duration;
+    player.style.display = 'block';
+    renderAudioStatus();
+    renderSceneCards(); // re-render to enable preview buttons
   };
-  const options = templates[structure.label] || [`They ${kw[0]}.`];
-  return options[0];
-}
 
-/**
- * Generate a screenshot description for the scene
- */
-function generateScreenshotDesc(lines, structure) {
-  const { narration } = extractDialogueAndNarration(lines);
-  if (narration.length > 0) {
-    const desc = narration[0].replace(/\[.*?\]/g, '').trim();
-    if (desc.length > 10) return desc.substring(0, 100);
+  renderAudioStatus();
+});
+
+function renderAudioStatus() {
+  const el = document.getElementById('audio-status');
+  if (state.audioFile) {
+    const dur = state.audioDuration ? ` (${formatTime(state.audioDuration)})` : '';
+    el.innerHTML = `<span class="audio-loaded">✅ ${escHtml(state.audioName)}${dur}</span>`;
+  } else {
+    el.innerHTML = '';
   }
-  return `Screenshot for the ${structure.label.toLowerCase()} scene`;
-}
-
-function capitalizeFirst(s) {
-  return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
 // ============================================================
-// Scene Card Rendering (supports multiple target sentences)
+// Scene Card Rendering
 // ============================================================
 function renderSceneCards() {
   const container = document.getElementById('scene-list');
-
-  if (!state.scenes.length) {
-    container.innerHTML = '<p class="empty-state">No scenes yet. Parse a script first.</p>';
-    return;
-  }
 
   container.innerHTML = state.scenes.map((scene, idx) => `
     <div class="scene-card" data-scene-idx="${idx}">
       <div class="scene-card-header">
         <h3>${escHtml(scene.title)}</h3>
-        <button class="btn-secondary btn-delete-scene" data-idx="${idx}">✕ Remove</button>
+        <span class="scene-desc">${escHtml(scene.desc)}</span>
       </div>
       <div class="scene-card-body">
 
-        <!-- Upload Row -->
-        <div class="upload-row">
+        <!-- Upload Row: image only now -->
+        <div class="upload-row upload-row-single">
           <div class="upload-slot ${scene.imageFile ? 'has-file' : ''}" id="img-slot-${idx}">
             <div class="slot-icon">🖼️</div>
             <div class="slot-label">Screenshot</div>
@@ -424,12 +117,24 @@ function renderSceneCards() {
               : '<div class="file-name">Click or drag to upload</div>'}
             <input type="file" accept="image/*" data-idx="${idx}" data-type="image" aria-label="Upload screenshot for ${escHtml(scene.title)}">
           </div>
-          <div class="upload-slot ${scene.audioFile ? 'has-file' : ''}" id="audio-slot-${idx}">
-            <div class="slot-icon">🔊</div>
-            <div class="slot-label">Audio Clip</div>
-            <div class="file-name">${scene.audioName || 'Click or drag to upload'}</div>
-            <input type="file" accept="audio/*" data-idx="${idx}" data-type="audio" aria-label="Upload audio clip for ${escHtml(scene.title)}">
+        </div>
+
+        <!-- Audio Time Range -->
+        <div class="audio-range-row">
+          <div class="range-label">🔊 Audio Clip Range</div>
+          <div class="range-inputs">
+            <label>
+              Start
+              <input type="text" class="time-input audio-start" data-idx="${idx}" value="${escAttr(scene.audioStart)}" placeholder="0:00" aria-label="Audio start time for ${escHtml(scene.title)}">
+            </label>
+            <span class="range-sep">→</span>
+            <label>
+              End
+              <input type="text" class="time-input audio-end" data-idx="${idx}" value="${escAttr(scene.audioEnd)}" placeholder="0:30" aria-label="Audio end time for ${escHtml(scene.title)}">
+            </label>
+            <button class="btn-secondary btn-preview-audio" data-idx="${idx}" ${state.audioUrl ? '' : 'disabled'}>▶ Preview</button>
           </div>
+          ${!state.audioUrl ? '<div class="hint">Upload the story audio above first.</div>' : ''}
         </div>
 
         <!-- Keywords -->
@@ -446,25 +151,27 @@ function renderSceneCards() {
           </div>
         </div>
 
-        <!-- Target Sentences (1-2) -->
+        <!-- Target Sentences -->
         <div class="target-sentences-area">
           ${scene.targetSentences.map((sent, si) => `
             <div class="target-sentence-area" style="margin-bottom:0.75rem;">
               <div class="area-label">Target Sentence ${si + 1} (A1-A2)</div>
-              <input type="text" class="target-edit-input" data-idx="${idx}" data-sent="${si}" value="${escAttr(sent)}" aria-label="Edit target sentence ${si + 1} for ${escHtml(scene.title)}">
-              <div class="hint">Click a word to toggle blank (masked words shown in blue).${scene.targetSentences.length > 1 ? ` <span class="remove-sent-btn" data-idx="${idx}" data-sent="${si}" style="color:var(--danger);cursor:pointer;font-style:normal;">✕ Remove</span>` : ''}</div>
-              <div class="word-tokens" id="tokens-${idx}-${si}">
-                ${(scene.sentenceWords[si] || []).map((w, wi) => `
-                  <span class="word-token ${(scene.sentenceMasks[si] || []).includes(wi) ? 'masked' : ''}"
-                        data-scene="${idx}" data-sent="${si}" data-word="${wi}"
-                        role="button" tabindex="0"
-                        aria-pressed="${(scene.sentenceMasks[si] || []).includes(wi)}"
-                        aria-label="Toggle blank for word ${escHtml(w)}">${escHtml(w)}</span>
-                `).join('')}
-              </div>
+              <input type="text" class="target-edit-input" data-idx="${idx}" data-sent="${si}" value="${escAttr(sent)}" placeholder="Type or paste the target sentence here…" aria-label="Target sentence ${si + 1} for ${escHtml(scene.title)}">
+              ${sent.trim() ? `
+                <div class="hint">Click a word to toggle blank (masked words shown in blue).${scene.targetSentences.length > 1 ? ` <span class="remove-sent-btn" data-idx="${idx}" data-sent="${si}">✕ Remove</span>` : ''}</div>
+                <div class="word-tokens" id="tokens-${idx}-${si}">
+                  ${(scene.sentenceWords[si] || []).map((w, wi) => `
+                    <span class="word-token ${(scene.sentenceMasks[si] || []).includes(wi) ? 'masked' : ''}"
+                          data-scene="${idx}" data-sent="${si}" data-word="${wi}"
+                          role="button" tabindex="0"
+                          aria-pressed="${(scene.sentenceMasks[si] || []).includes(wi)}"
+                          aria-label="Toggle blank for word ${escHtml(w)}">${escHtml(w)}</span>
+                  `).join('')}
+                </div>
+              ` : '<div class="hint">Enter a sentence above to enable word masking.</div>'}
             </div>
           `).join('')}
-          ${scene.targetSentences.length < 2 ? `<button class="btn-secondary btn-add-sentence" data-idx="${idx}">+ Add Target Sentence</button>` : ''}
+          <button class="btn-secondary btn-add-sentence" data-idx="${idx}">+ Add Target Sentence</button>
         </div>
 
         <!-- Connector -->
@@ -485,12 +192,32 @@ function renderSceneCards() {
 }
 
 // ============================================================
-// Event Binding for Scene Cards
+// Event Binding
 // ============================================================
 function bindSceneEvents() {
-  // File uploads
+  // Image uploads
   document.querySelectorAll('.upload-slot input[type="file"]').forEach(input => {
     input.addEventListener('change', handleFileUpload);
+  });
+
+  // Audio time range inputs
+  document.querySelectorAll('.audio-start').forEach(input => {
+    input.addEventListener('change', e => {
+      state.scenes[+e.target.dataset.idx].audioStart = e.target.value.trim();
+    });
+  });
+  document.querySelectorAll('.audio-end').forEach(input => {
+    input.addEventListener('change', e => {
+      state.scenes[+e.target.dataset.idx].audioEnd = e.target.value.trim();
+    });
+  });
+
+  // Preview audio clip
+  document.querySelectorAll('.btn-preview-audio').forEach(btn => {
+    btn.addEventListener('click', e => {
+      const idx = +e.target.dataset.idx;
+      previewAudioClip(idx);
+    });
   });
 
   // Remove keyword
@@ -514,7 +241,7 @@ function bindSceneEvents() {
     });
   });
 
-  // Word token click (toggle mask) — now with sentence index
+  // Word token click (toggle mask)
   document.querySelectorAll('.word-token').forEach(token => {
     const handler = () => {
       const sceneIdx = +token.dataset.scene;
@@ -542,8 +269,9 @@ function bindSceneEvents() {
     input.addEventListener('change', e => {
       const idx = +e.target.dataset.idx;
       const si = +e.target.dataset.sent;
-      state.scenes[idx].targetSentences[si] = e.target.value;
-      state.scenes[idx].sentenceWords[si] = tokenize(e.target.value);
+      const val = e.target.value.trim();
+      state.scenes[idx].targetSentences[si] = val;
+      state.scenes[idx].sentenceWords[si] = val ? tokenize(val) : [];
       state.scenes[idx].sentenceMasks[si] = [];
       renderSceneCards();
     });
@@ -554,8 +282,8 @@ function bindSceneEvents() {
     btn.addEventListener('click', e => {
       const idx = +e.target.dataset.idx;
       const scene = state.scenes[idx];
-      scene.targetSentences.push('New target sentence.');
-      scene.sentenceWords.push(tokenize('New target sentence.'));
+      scene.targetSentences.push('');
+      scene.sentenceWords.push([]);
       scene.sentenceMasks.push([]);
       renderSceneCards();
     });
@@ -581,46 +309,59 @@ function bindSceneEvents() {
       state.scenes[idx].connector = e.target.value;
     });
   });
-
-  // Delete scene
-  document.querySelectorAll('.btn-delete-scene').forEach(btn => {
-    btn.addEventListener('click', e => {
-      const idx = +e.target.dataset.idx;
-      state.scenes.splice(idx, 1);
-      state.scenes.forEach((s, i) => { s.index = i; });
-      renderSceneCards();
-    });
-  });
 }
 
 // ============================================================
-// File Upload Handler
+// Audio Preview — play the clip between start/end times
+// ============================================================
+let previewTimer = null;
+
+function previewAudioClip(sceneIdx) {
+  const scene = state.scenes[sceneIdx];
+  const player = document.getElementById('global-audio-player');
+  if (!state.audioUrl) return;
+
+  const startSec = parseTime(scene.audioStart) || 0;
+  const endSec = parseTime(scene.audioEnd) || state.audioDuration || 0;
+
+  if (endSec <= startSec) return;
+
+  // Stop any previous preview
+  if (previewTimer) { clearInterval(previewTimer); previewTimer = null; }
+  player.pause();
+
+  player.currentTime = startSec;
+  player.play();
+
+  previewTimer = setInterval(() => {
+    if (player.currentTime >= endSec) {
+      player.pause();
+      clearInterval(previewTimer);
+      previewTimer = null;
+    }
+  }, 100);
+}
+
+// ============================================================
+// File Upload Handler (images only now)
 // ============================================================
 function handleFileUpload(e) {
   const idx = +e.target.dataset.idx;
-  const type = e.target.dataset.type;
   const file = e.target.files[0];
   if (!file) return;
 
   const scene = state.scenes[idx];
-
-  if (type === 'image') {
-    scene.imageFile = file;
-    const reader = new FileReader();
-    reader.onload = () => {
-      scene.imagePreview = reader.result;
-      renderSceneCards();
-    };
-    reader.readAsDataURL(file);
-  } else if (type === 'audio') {
-    scene.audioFile = file;
-    scene.audioName = file.name;
+  scene.imageFile = file;
+  const reader = new FileReader();
+  reader.onload = () => {
+    scene.imagePreview = reader.result;
     renderSceneCards();
-  }
+  };
+  reader.readAsDataURL(file);
 }
 
 // ============================================================
-// Export — updated for multiple sentences
+// Export — includes audio time ranges
 // ============================================================
 document.getElementById('btn-export').addEventListener('click', () => {
   const config = buildExportConfig();
@@ -633,16 +374,172 @@ document.getElementById('btn-export').addEventListener('click', () => {
   URL.revokeObjectURL(url);
 });
 
+// ============================================================
+// Mind Map Generation (SVG)
+// ============================================================
+const BRANCH_COLORS = ['#4a9e6f', '#4a6fa5', '#c0792b', '#9b59b6'];
+const BRANCH_BG     = ['#e8f5ee', '#e8eff8', '#fdf0e0', '#f3e8fa'];
+
+function generateMindMapSVG(masked) {
+  const scenes = state.scenes;
+  const title = '🐷 Story Retell';
+
+  // Layout constants
+  const centerX = 480, centerY = 52;
+  const branchStartY = 110;
+  const colWidth = 220;
+  const sentLineH = 22;
+  const sentPadY = 10;
+  const branchGap = 16;
+  const kwLineH = 18;
+
+  // Calculate total height needed
+  let maxBranchH = 0;
+  const branchData = scenes.map((scene, i) => {
+    const sents = scene.targetSentences.filter(s => s.trim());
+    // Wrap each sentence into lines (~30 chars)
+    const wrappedSents = sents.map((sent, si) => {
+      if (masked) {
+        const words = scene.sentenceWords[si] || [];
+        const masks = scene.sentenceMasks[si] || [];
+        const display = words.map((w, wi) => masks.includes(wi) ? '______' : w).join(' ');
+        return wrapText(display, 28);
+      }
+      return wrapText(sent, 28);
+    });
+    const kwCount = scene.keywords.length;
+    const sentTotalLines = wrappedSents.reduce((a, lines) => a + lines.length, 0) + (wrappedSents.length - 1) * 0.4;
+    const h = sentPadY * 2 + sentTotalLines * sentLineH + (kwCount ? kwLineH + 8 : 0);
+    if (h > maxBranchH) maxBranchH = h;
+    return { scene, wrappedSents, h };
+  });
+
+  const svgW = 960;
+  const svgH = branchStartY + maxBranchH + 60;
+
+  let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${svgW}" height="${svgH}" viewBox="0 0 ${svgW} ${svgH}">`;
+  svg += `<rect width="${svgW}" height="${svgH}" fill="#fafaf8"/>`;
+
+  // Title
+  svg += `<text x="${centerX}" y="${centerY}" text-anchor="middle" font-family="Inter, sans-serif" font-size="22" font-weight="700" fill="#2c2c2c">${escSvg(title)}</text>`;
+
+  // Branches
+  const totalW = branchData.length * colWidth + (branchData.length - 1) * branchGap;
+  const startX = (svgW - totalW) / 2;
+
+  branchData.forEach((bd, i) => {
+    const x = startX + i * (colWidth + branchGap);
+    const y = branchStartY;
+    const color = BRANCH_COLORS[i];
+    const bg = BRANCH_BG[i];
+    const scene = bd.scene;
+
+    // Connector line from title to branch
+    const bx = x + colWidth / 2;
+    svg += `<line x1="${centerX}" y1="${centerY + 10}" x2="${bx}" y2="${y}" stroke="${color}" stroke-width="2" stroke-dasharray="4,3" opacity="0.5"/>`;
+
+    // Branch box
+    const boxH = bd.h;
+    svg += `<rect x="${x}" y="${y}" width="${colWidth}" height="${boxH}" rx="10" fill="${bg}" stroke="${color}" stroke-width="1.5"/>`;
+
+    // Branch title
+    const titleY = y + 24;
+    svg += `<text x="${bx}" y="${titleY}" text-anchor="middle" font-family="Inter, sans-serif" font-size="14" font-weight="700" fill="${color}">${escSvg(scene.title)}</text>`;
+
+    // Connector word
+    if (scene.connector) {
+      svg += `<text x="${bx}" y="${titleY + 16}" text-anchor="middle" font-family="Inter, sans-serif" font-size="10" font-style="italic" fill="${color}" opacity="0.7">${escSvg(scene.connector)}</text>`;
+    }
+
+    // Keywords
+    let curY = titleY + 32;
+    if (scene.keywords.length) {
+      const kwStr = scene.keywords.join(' · ');
+      svg += `<text x="${bx}" y="${curY}" text-anchor="middle" font-family="Inter, sans-serif" font-size="10" font-weight="600" fill="${color}" opacity="0.8">🔑 ${escSvg(kwStr)}</text>`;
+      curY += kwLineH + 4;
+    }
+
+    // Sentences
+    bd.wrappedSents.forEach((lines, si) => {
+      lines.forEach(line => {
+        svg += `<text x="${x + 14}" y="${curY}" font-family="Inter, sans-serif" font-size="12" fill="#2c2c2c">${escSvg(line)}</text>`;
+        curY += sentLineH;
+      });
+      curY += sentLineH * 0.4; // gap between sentences
+    });
+  });
+
+  svg += '</svg>';
+  return svg;
+}
+
+function wrapText(text, maxChars) {
+  const words = text.split(/\s+/);
+  const lines = [];
+  let cur = '';
+  for (const w of words) {
+    if (cur && (cur.length + 1 + w.length) > maxChars) {
+      lines.push(cur);
+      cur = w;
+    } else {
+      cur = cur ? cur + ' ' + w : w;
+    }
+  }
+  if (cur) lines.push(cur);
+  return lines.length ? lines : [''];
+}
+
+function escSvg(str) {
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function renderMindMaps() {
+  document.getElementById('mindmap-complete').innerHTML = generateMindMapSVG(false);
+  document.getElementById('mindmap-masked').innerHTML = generateMindMapSVG(true);
+}
+
+function downloadMindMapPNG(masked) {
+  const svgStr = generateMindMapSVG(masked);
+  const blob = new Blob([svgStr], { type: 'image/svg+xml;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const img = new Image();
+  img.onload = () => {
+    const scale = 2; // retina
+    const canvas = document.createElement('canvas');
+    canvas.width = img.width * scale;
+    canvas.height = img.height * scale;
+    const ctx = canvas.getContext('2d');
+    ctx.scale(scale, scale);
+    ctx.drawImage(img, 0, 0);
+    URL.revokeObjectURL(url);
+    canvas.toBlob(pngBlob => {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(pngBlob);
+      a.download = masked ? 'mindmap-masked.png' : 'mindmap-complete.png';
+      a.click();
+      URL.revokeObjectURL(a.href);
+    }, 'image/png');
+  };
+  img.src = url;
+}
+
+document.getElementById('btn-dl-mindmap-complete').addEventListener('click', () => downloadMindMapPNG(false));
+document.getElementById('btn-dl-mindmap-masked').addEventListener('click', () => downloadMindMapPNG(true));
+
 function buildExportConfig() {
   return {
-    version: '2.0',
+    version: '2.1',
     exportedAt: new Date().toISOString(),
+    audio: state.audioFile ? state.audioName : null,
     scenes: state.scenes.map(s => ({
       title: s.title,
-      screenshotDesc: s.screenshotDesc,
       keywords: s.keywords,
       connector: s.connector,
-      targetSentences: s.targetSentences.map((sent, si) => ({
+      audioStart: s.audioStart || null,
+      audioEnd: s.audioEnd || null,
+      audioStartSec: parseTime(s.audioStart) || 0,
+      audioEndSec: parseTime(s.audioEnd) || null,
+      targetSentences: s.targetSentences.filter(t => t.trim()).map((sent, si) => ({
         text: sent,
         words: s.sentenceWords[si],
         maskedWords: (s.sentenceMasks[si] || []).map(i => ({
@@ -651,7 +548,6 @@ function buildExportConfig() {
           is_masked: true,
         })),
       })),
-      // Legacy compat: first sentence as targetSentence
       targetSentence: s.targetSentences[0] || '',
       words: s.sentenceWords[0] || [],
       maskedWords: (s.sentenceMasks[0] || []).map(i => ({
@@ -660,7 +556,6 @@ function buildExportConfig() {
         is_masked: true,
       })),
       image: s.imageFile ? s.imageFile.name : null,
-      audio: s.audioFile ? s.audioFile.name : null,
     })),
   };
 }
@@ -677,6 +572,26 @@ function tokenize(sentence) {
   return sentence.split(/(\s+)/).filter(t => t.trim()).map(t => t.trim());
 }
 
+/** Parse "m:ss" or "mm:ss" to seconds */
+function parseTime(str) {
+  if (!str) return null;
+  const parts = str.trim().split(':');
+  if (parts.length === 2) {
+    return (+parts[0]) * 60 + (+parts[1]);
+  }
+  if (parts.length === 1 && !isNaN(+parts[0])) {
+    return +parts[0];
+  }
+  return null;
+}
+
+/** Format seconds to m:ss */
+function formatTime(sec) {
+  const m = Math.floor(sec / 60);
+  const s = Math.floor(sec % 60);
+  return `${m}:${s.toString().padStart(2, '0')}`;
+}
+
 function escHtml(str) {
   const d = document.createElement('div');
   d.textContent = str;
@@ -687,7 +602,7 @@ function escAttr(str) {
   return str.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-function showStatus(el, msg, type) {
-  el.textContent = msg;
-  el.className = `status-msg ${type}`;
-}
+// ============================================================
+// Init
+// ============================================================
+renderSceneCards();

@@ -10,52 +10,72 @@
   <header class="top-bar">
     <div class="logo">🐷 Peppa Retell</div>
     <nav>
-      <button class="tab active" data-tab="parser">Script Parser</button>
-      <button class="tab" data-tab="editor">Scene Editor</button>
+      <button class="tab active" data-tab="editor">Scene Editor</button>
       <button class="tab" data-tab="export">Export</button>
     </nav>
   </header>
 
   <main>
-    <!-- ========== TAB 1: Script Parser ========== -->
-    <section id="tab-parser" class="tab-panel active">
-      <div class="panel-header">
-        <h2>Smart Script Parser</h2>
-        <p class="subtitle">Paste a Peppa Pig episode script and let AI split it into teachable scenes.</p>
-      </div>
-      <div class="parser-grid">
-        <div class="input-group">
-          <label for="script-input">Episode Script</label>
-          <textarea id="script-input" rows="14" placeholder="Paste the full episode script here…"></textarea>
-        </div>
-        <div class="input-group">
-          <label for="parse-prefs">Parsing Preferences (optional)</label>
-          <textarea id="parse-prefs" rows="6" placeholder="e.g. 'Focus on outdoor scenes', 'Keep dialogue under 3 lines per scene', 'Target A1 vocabulary'…"></textarea>
-        </div>
-        <button id="btn-parse" class="btn-primary">✨ Parse into Scenes</button>
-        <div id="parse-status" class="status-msg hidden"></div>
-      </div>
-    </section>
-
-    <!-- ========== TAB 2: Scene Editor ========== -->
-    <section id="tab-editor" class="tab-panel">
+    <!-- ========== TAB 1: Scene Editor ========== -->
+    <section id="tab-editor" class="tab-panel active">
       <div class="panel-header">
         <h2>Scene Editor</h2>
-        <p class="subtitle">Fine-tune each scene: upload resources, edit target sentences, and mark blanks.</p>
+        <p class="subtitle">Fill in the target sentences for each scene, upload resources, and mark blanks.</p>
       </div>
-      <div id="scene-list" class="scene-list">
-        <p class="empty-state">No scenes yet. Parse a script first.</p>
+
+      <!-- Global Audio Upload -->
+      <div class="global-audio-section">
+        <div class="global-audio-header">
+          <span class="global-audio-icon">🔊</span>
+          <div>
+            <div class="global-audio-title">Story Audio</div>
+            <div class="global-audio-hint">Upload the full episode audio. Then set start/end times for each scene below.</div>
+          </div>
+        </div>
+        <div class="global-audio-controls">
+          <label class="btn-secondary upload-audio-btn" for="global-audio-input">
+            📂 Choose Audio File
+            <input type="file" id="global-audio-input" accept="audio/*" hidden>
+          </label>
+          <span id="audio-status"></span>
+        </div>
+        <audio id="global-audio-player" controls style="width:100%;margin-top:0.75rem;display:none;"></audio>
       </div>
+
+      <div id="scene-list" class="scene-list"></div>
     </section>
 
-    <!-- ========== TAB 3: Export ========== -->
+    <!-- ========== TAB 2: Export ========== -->
     <section id="tab-export" class="tab-panel">
       <div class="panel-header">
-        <h2>Course Pack Export</h2>
-        <p class="subtitle">Preview the final JSON and download the complete course package.</p>
+        <h2>Export</h2>
+        <p class="subtitle">Download mind maps and course pack.</p>
       </div>
-      <pre id="json-preview" class="json-preview">{ "scenes": [] }</pre>
-      <button id="btn-export" class="btn-primary">📦 Export Course Pack</button>
+
+      <!-- Mind Map Preview -->
+      <div class="export-section">
+        <h3 class="export-section-title">🧠 Mind Maps</h3>
+        <p class="export-section-desc">Two versions: a complete one (answer key) and a masked one (student practice sheet with blanks).</p>
+        <div class="mindmap-preview-row">
+          <div class="mindmap-preview-col">
+            <div class="mindmap-label">Complete Version</div>
+            <div class="mindmap-canvas" id="mindmap-complete"></div>
+            <button class="btn-primary btn-sm" id="btn-dl-mindmap-complete">⬇ Download PNG</button>
+          </div>
+          <div class="mindmap-preview-col">
+            <div class="mindmap-label">Masked Version (Student)</div>
+            <div class="mindmap-canvas" id="mindmap-masked"></div>
+            <button class="btn-primary btn-sm" id="btn-dl-mindmap-masked">⬇ Download PNG</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- JSON Export -->
+      <div class="export-section">
+        <h3 class="export-section-title">📦 Course Pack (JSON)</h3>
+        <pre id="json-preview" class="json-preview">{ "scenes": [] }</pre>
+        <button id="btn-export" class="btn-primary">📦 Export Course Pack</button>
+      </div>
     </section>
   </main>
 
