@@ -118,7 +118,7 @@ function renderSceneCards() {
             `).join('')}
             <label class="screenshot-add" for="img-input-${idx}">
               <span class="screenshot-add-icon">+</span>
-              <span class="screenshot-add-label">Add</span>
+              <span class="screenshot-add-label">Click or drag</span>
               <input type="file" id="img-input-${idx}" accept="image/*" multiple data-idx="${idx}" hidden>
             </label>
           </div>
@@ -200,9 +200,28 @@ function renderSceneCards() {
 // Event Binding
 // ============================================================
 function bindSceneEvents() {
-  // Screenshot uploads (multiple)
+  // Screenshot uploads (multiple) — click
   document.querySelectorAll('.screenshots-grid input[type="file"]').forEach(input => {
     input.addEventListener('change', handleImageUpload);
+  });
+
+  // Screenshot drag & drop
+  document.querySelectorAll('.screenshots-grid').forEach(grid => {
+    const idx = +grid.id.split('-')[1]; // screenshots-0 → 0
+    grid.addEventListener('dragover', e => {
+      e.preventDefault();
+      grid.classList.add('drag-over');
+    });
+    grid.addEventListener('dragleave', e => {
+      e.preventDefault();
+      grid.classList.remove('drag-over');
+    });
+    grid.addEventListener('drop', e => {
+      e.preventDefault();
+      grid.classList.remove('drag-over');
+      const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'));
+      if (files.length) addImagesToScene(idx, files);
+    });
   });
 
   // Remove screenshot
@@ -362,12 +381,13 @@ function previewAudioClip(sceneIdx) {
 // ============================================================
 function handleImageUpload(e) {
   const idx = +e.target.dataset.idx;
-  const files = Array.from(e.target.files);
-  if (!files.length) return;
+  const files = Array.from(e.target.files).filter(f => f.type.startsWith('image/'));
+  if (files.length) addImagesToScene(idx, files);
+}
 
+function addImagesToScene(idx, files) {
   const scene = state.scenes[idx];
   let loaded = 0;
-
   files.forEach(file => {
     const reader = new FileReader();
     reader.onload = () => {
